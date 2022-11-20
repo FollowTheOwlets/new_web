@@ -6,20 +6,26 @@ import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
+import java.util.logging.Handler;
 
 public class Server {
-    final List<String> validPaths;
-    final int port;
+    protected Map<HandlerKey, Handler> handlers;
 
-    public Server(List<String> validPaths, int port) {
-        this.validPaths = validPaths;
-        this.port = port;
+    public Server() {
+        handlers = new HashMap<>();
     }
 
-    public void start() {
-        try (final var serverSocket = new ServerSocket(this.port)) {
+    public Server addHandler(String method, String path, Handler handler) {
+        handlers.put(new HandlerKey(method, path), handler);
+        return this;
+    }
+
+    public void listen(int port) {
+        try (final var serverSocket = new ServerSocket(port)) {
             ExecutorService threadPool = Executors.newFixedThreadPool(64);
             while (true) {
                 try (
@@ -42,62 +48,9 @@ public class Server {
     }
 
     public Boolean connect(BufferedReader in, BufferedOutputStream out) {
-        // read only request line for simplicity
-        // must be in form GET /path HTTP/1.1
-        final String requestLine;
         try {
-            requestLine = in.readLine();
-            final var parts = requestLine.split(" ");
-
-            if (parts.length != 3) {
-                // just close socket
-                return false;
-            }
-
-            final var path = parts[1];
-            if (!validPaths.contains(path)) {
-                out.write((
-                        "HTTP/1.1 404 Not Found\r\n" +
-                                "Content-Length: 0\r\n" +
-                                "Connection: close\r\n" +
-                                "\r\n"
-                ).getBytes());
-                out.flush();
-                return true;
-            }
-
-            final var filePath = Path.of(".", "public", path);
-            final var mimeType = Files.probeContentType(filePath);
-
-            // special case for classic
-            if (path.equals("/classic.html")) {
-                final var template = Files.readString(filePath);
-                final var content = template.replace(
-                        "{time}",
-                        LocalDateTime.now().toString()
-                ).getBytes();
-                out.write((
-                        "HTTP/1.1 200 OK\r\n" +
-                                "Content-Type: " + mimeType + "\r\n" +
-                                "Content-Length: " + content.length + "\r\n" +
-                                "Connection: close\r\n" +
-                                "\r\n"
-                ).getBytes());
-                out.write(content);
-                out.flush();
-                return true;
-            }
-
-            final var length = Files.size(filePath);
-            out.write((
-                    "HTTP/1.1 200 OK\r\n" +
-                            "Content-Type: " + mimeType + "\r\n" +
-                            "Content-Length: " + length + "\r\n" +
-                            "Connection: close\r\n" +
-                            "\r\n"
-            ).getBytes());
-            Files.copy(filePath, out);
-            out.flush();
+            final String requestLine = in.readLine();
+            //TODO:Что-то ответить при наличи handler'а
         } catch (IOException e) {
             e.printStackTrace();
         }
